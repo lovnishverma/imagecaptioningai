@@ -1,10 +1,10 @@
 """
-╔════════════════════════════════════════════════════════════════════════════════╗
+╔═══════════════════════════════════════════════════════════════════════════════════════╗
 ║  ECHOLENS — Realtime Vision Assistant for Blind & Low-Vision Users             ║
 ║                                                                                ║
 ║  Keyboard:  D = Describe  ·  R = Toggle realtime  ·  Esc = Stop  ·  P = Repeat ║
 ║  Voice Commands: Click "Enable Voice Commands" for hands-free control          ║
-╚════════════════════════════════════════════════════════════════════════════════╝
+╚═══════════════════════════════════════════════════════════════════════════════════════╝
 """
 
 from __future__ import annotations
@@ -84,6 +84,8 @@ VOICE_MAP: Dict[str, str] = {
     "Emily — Female Australia": "en-AU-EmilyNeural",
     "William — Male Australia": "en-AU-WilliamNeural",
     "Natasha — Female Australia": "en-AU-NatashaNeural",
+    "Swara — Female India (Hindi)": "hi-IN-SwaraNeural",
+    "Madhur — Male India (Hindi)": "hi-IN-MadhurNeural",
 }
 
 TASKS: Dict[str, str] = {
