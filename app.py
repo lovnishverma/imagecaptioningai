@@ -7,6 +7,9 @@ import tempfile
 import asyncio
 import threading
 import time
+import numpy as np
+import base64
+from io import BytesIO
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Running on: {device}")
@@ -53,13 +56,7 @@ def text_to_speech(text: str) -> str:
     return path
 
 
-def run_caption(image, task_choice):
-    if image is None:
-        return gr.update(), gr.update()
-
-    if not isinstance(image, Image.Image):
-        image = Image.fromarray(image)
-
+def caption_from_pil(image: Image.Image, task_choice: str):
     h = image_hash(image)
     if h == last_caption["hash"] and last_caption["text"]:
         return gr.update(), gr.update()
@@ -98,7 +95,24 @@ def run_caption(image, task_choice):
     return caption, audio_path
 
 
-def generate_caption_stream(image, task_choice):
+def describe_frame(frame_b64: str, task_choice: str):
+    """Receives base64 jpeg from JS webcam snapshot."""
+    if not frame_b64 or frame_b64 == "none":
+        return gr.update(), gr.update()
+    try:
+        # Strip data URL header if present
+        if "," in frame_b64:
+            frame_b64 = frame_b64.split(",")[1]
+        img_bytes = base64.b64decode(frame_b64)
+        image = Image.open(BytesIO(img_bytes)).convert("RGB")
+        return caption_from_pil(image, task_choice)
+    except Exception as e:
+        print(f"Frame error: {e}")
+        return gr.update(), gr.update()
+
+
+def describe_upload(image, task_choice):
+    """Streaming version for manual/upload."""
     if image is None:
         yield "Please upload or capture an image.", None
         return
@@ -150,72 +164,58 @@ def generate_caption_stream(image, task_choice):
     yield caption, audio_path
 
 
-def realtime_tick(snapshot, task_choice, is_active):
-    """Timer calls this — snapshot is set by JS auto-capture."""
-    if not is_active or snapshot is None:
-        return gr.update(), gr.update()
-    return run_caption(snapshot, task_choice)
-
-
-# ── JS: auto-snapshot webcam into hidden gr.Image every 3s ──
+# JS captures webcam frame → puts base64 in hidden textbox → triggers hidden button
 WEBCAM_JS = """
 <script>
-let realtimeInterval = null;
+let realtimeTimer = null;
 
-function startRealtimeCapture() {
-    if (realtimeInterval) return;
-    realtimeInterval = setInterval(() => {
-        // Find the webcam video element
-        const video = document.querySelector('video');
-        if (!video || video.readyState < 2) return;
+function captureAndSend() {
+    const video = document.querySelector('video');
+    if (!video || video.readyState < 2) {
+        console.log('Video not ready');
+        return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const b64 = canvas.toDataURL('image/jpeg', 0.7);
 
-        // Draw frame to canvas
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0);
+    // Put base64 into hidden textbox
+    const hiddenBox = document.querySelector('#frame-input textarea');
+    if (!hiddenBox) { console.log('No hidden box'); return; }
 
-        // Convert to blob and set on the hidden snapshot component
-        canvas.toBlob((blob) => {
-            const file = new File([blob], 'snapshot.jpg', { type: 'image/jpeg' });
-            const dt = new DataTransfer();
-            dt.items.add(file);
+    // Set value via React/Svelte-compatible input event
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+    nativeInputValueSetter.call(hiddenBox, b64);
+    hiddenBox.dispatchEvent(new Event('input', { bubbles: true }));
 
-            // Find the snapshot upload input (second image component)
-            const inputs = document.querySelectorAll('input[type=file]');
-            if (inputs.length >= 2) {
-                inputs[1].files = dt.files;
-                inputs[1].dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        }, 'image/jpeg', 0.8);
-    }, 3000);
+    // Click hidden submit button
+    setTimeout(() => {
+        const btn = document.querySelector('#frame-submit');
+        if (btn) btn.click();
+        else console.log('No submit btn');
+    }, 100);
 }
 
-function stopRealtimeCapture() {
-    if (realtimeInterval) {
-        clearInterval(realtimeInterval);
-        realtimeInterval = null;
+function startRealtime() {
+    if (realtimeTimer) return;
+    console.log('Realtime started');
+    captureAndSend(); // immediate first capture
+    realtimeTimer = setInterval(captureAndSend, 3000);
+}
+
+function stopRealtime() {
+    if (realtimeTimer) {
+        clearInterval(realtimeTimer);
+        realtimeTimer = null;
+        console.log('Realtime stopped');
     }
 }
 
-// Listen for realtime toggle button clicks
-window.addEventListener('load', () => {
-    const observer = new MutationObserver(() => {
-        const btn = document.querySelector('button[aria-label="realtime-btn"]') ||
-                    [...document.querySelectorAll('button')].find(b => b.textContent.includes('Start Realtime') || b.textContent.includes('Stop Realtime'));
-        if (btn) {
-            btn.addEventListener('click', () => {
-                if (btn.textContent.includes('Stop')) {
-                    startRealtimeCapture();
-                } else {
-                    stopRealtimeCapture();
-                }
-            });
-        }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-});
+// Expose globally so Gradio buttons can call them
+window.startRealtime = startRealtime;
+window.stopRealtime = stopRealtime;
 </script>
 """
 
@@ -223,25 +223,16 @@ window.addEventListener('load', () => {
 with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
     gr.HTML(WEBCAM_JS)
     gr.Markdown("# 👁️ EchoLens — Realtime Vision Assistant")
-    gr.Markdown("For blind and visually impaired users. Use **Start Realtime** for continuous camera description.")
+    gr.Markdown("For blind and visually impaired users. Press **Start Realtime** to auto-describe every 3 seconds.")
 
     is_realtime = gr.State(False)
 
     with gr.Row():
         with gr.Column(scale=1):
-            # Live webcam — user sees this
             webcam_input = gr.Image(
                 label="Live Camera",
                 type="numpy",
                 sources=["webcam"],
-                # No streaming=True — just snapshots
-            )
-            # Hidden: receives auto-snapshots from JS for realtime mode
-            snapshot_input = gr.Image(
-                label="Snapshot (auto)",
-                type="numpy",
-                sources=["upload"],
-                visible=False,
             )
             upload_input = gr.Image(
                 label="Or Upload Image",
@@ -255,7 +246,11 @@ with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
             )
             with gr.Row():
                 btn = gr.Button("Describe Once ▶", variant="primary")
-                realtime_btn = gr.Button("▶ Start Realtime", variant="secondary")
+                realtime_btn = gr.Button(
+                    "▶ Start Realtime",
+                    variant="secondary",
+                    elem_id="realtime-toggle-btn",
+                )
 
         with gr.Column(scale=1):
             caption_out = gr.Textbox(
@@ -269,54 +264,66 @@ with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
                 type="filepath",
                 autoplay=True,
             )
-            gr.Markdown("*Realtime mode describes every 3 seconds automatically.*")
+            gr.Markdown("*Realtime mode captures from webcam every 3 seconds.*")
 
-    timer = gr.Timer(value=3, active=False)
+    # Hidden components: JS writes frame here, triggers caption
+    with gr.Row(visible=False):
+        frame_input = gr.Textbox(
+            elem_id="frame-input",
+            label="frame",
+        )
+        frame_btn = gr.Button(
+            "submit frame",
+            elem_id="frame-submit",
+        )
 
-    # Manual describe
+    # Manual describe once (webcam snapshot)
     btn.click(
-        fn=generate_caption_stream,
+        fn=describe_upload,
         inputs=[webcam_input, task_choice],
         outputs=[caption_out, audio_out],
         show_progress=False,
     )
 
-    # Upload triggers caption
+    # Upload image
     upload_input.change(
-        fn=generate_caption_stream,
+        fn=describe_upload,
         inputs=[upload_input, task_choice],
         outputs=[caption_out, audio_out],
         show_progress=False,
     )
 
-    # Snapshot change (from JS auto-capture) triggers caption
-    snapshot_input.change(
-        fn=run_caption,
-        inputs=[snapshot_input, task_choice],
+    # Hidden frame button → caption
+    frame_btn.click(
+        fn=describe_frame,
+        inputs=[frame_input, task_choice],
         outputs=[caption_out, audio_out],
         show_progress=False,
     )
 
-    # Toggle realtime timer
+    # Realtime toggle: update button label + call JS start/stop
     realtime_btn.click(
         fn=lambda s: (
             not s,
             gr.update(
                 value="⏹ Stop Realtime" if not s else "▶ Start Realtime",
-                variant="stop" if not s else "secondary"
+                variant="stop" if not s else "secondary",
             ),
-            gr.Timer(active=not s),
         ),
         inputs=[is_realtime],
-        outputs=[is_realtime, realtime_btn, timer],
-    )
-
-    # Timer tick — reads last webcam snapshot
-    timer.tick(
-        fn=realtime_tick,
-        inputs=[webcam_input, task_choice, is_realtime],
-        outputs=[caption_out, audio_out],
-        show_progress=False,
+        outputs=[is_realtime, realtime_btn],
+    ).then(
+        fn=None,
+        js="""
+        (is_realtime) => {
+            if (is_realtime) {
+                window.startRealtime();
+            } else {
+                window.stopRealtime();
+            }
+        }
+        """,
+        inputs=[is_realtime],
     )
 
 if __name__ == "__main__":
