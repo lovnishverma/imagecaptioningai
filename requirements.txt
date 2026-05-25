@@ -1,6 +1,10 @@
 transformers==4.48.0
 timm
 torch>=2.1.0
+torchvision
 Pillow>=10.0.0
 einops
 edge-tts
+gradio>=5.0.0
+numpy
+accelerate
