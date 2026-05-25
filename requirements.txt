@@ -3,4 +3,4 @@ timm
 torch>=2.1.0
 Pillow>=10.0.0
 einops
-gtts
+edge-tts
