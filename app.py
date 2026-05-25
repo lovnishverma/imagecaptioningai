@@ -1,69 +1,138 @@
-import gradio as gr
-import subprocess
 import torch
+import gradio as gr
 from PIL import Image
 from transformers import AutoProcessor, AutoModelForCausalLM
 
-# import os
-# import random
-# from gradio_client import Client
-
-
-subprocess.run('pip install flash-attn --no-build-isolation', env={'FLASH_ATTENTION_SKIP_CUDA_BUILD': "TRUE"}, shell=True)
-
-# Initialize Florence model
 device = "cuda" if torch.cuda.is_available() else "cpu"
-florence_model = AutoModelForCausalLM.from_pretrained('microsoft/Florence-2-base', trust_remote_code=True).to(device).eval()
-florence_processor = AutoProcessor.from_pretrained('microsoft/Florence-2-base', trust_remote_code=True)
 
-# api_key = os.getenv("HF_READ_TOKEN")
+model = AutoModelForCausalLM.from_pretrained(
+    'microsoft/Florence-2-base',
+    trust_remote_code=True,
+    torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+).to(device).eval()
 
-def generate_caption(image):
+processor = AutoProcessor.from_pretrained('microsoft/Florence-2-base', trust_remote_code=True)
+
+# ── JS injected into Gradio to trigger browser speech on caption update ──
+SPEECH_JS = """
+<script>
+function speakCaption(text) {
+    if (!text || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.rate = 1.1;
+    utt.pitch = 1.0;
+    window.speechSynthesis.speak(utt);
+}
+
+// Watch the caption textbox for changes, speak when it stops updating
+let debounce;
+const observer = new MutationObserver(() => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => {
+        const el = document.querySelector('#caption-output textarea');
+        if (el && el.value) speakCaption(el.value);
+    }, 400);   // 400 ms after last token → speak
+});
+
+// Wait for DOM to be ready then attach observer
+window.addEventListener('load', () => {
+    const attach = () => {
+        const el = document.querySelector('#caption-output textarea');
+        if (el) {
+            observer.observe(el, { attributes: true, childList: true, subtree: true, characterData: true });
+        } else {
+            setTimeout(attach, 300);
+        }
+    };
+    attach();
+});
+</script>
+"""
+
+
+def generate_caption_stream(image):
+    """Stream caption tokens live into the textbox."""
+    if image is None:
+        yield "Please upload or capture an image."
+        return
+
     if not isinstance(image, Image.Image):
         image = Image.fromarray(image)
-    
-    inputs = florence_processor(text="<MORE_DETAILED_CAPTION>", images=image, return_tensors="pt").to(device)
-    generated_ids = florence_model.generate(
-        input_ids=inputs["input_ids"],
-        pixel_values=inputs["pixel_values"],
-        max_new_tokens=1024,
-        early_stopping=False,
-        do_sample=False,
-        num_beams=3,
-    )
-    generated_text = florence_processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
-    parsed_answer = florence_processor.post_process_generation(
+
+    inputs = processor(
+        text="<MORE_DETAILED_CAPTION>",
+        images=image,
+        return_tensors="pt"
+    ).to(device)
+
+    # ── Greedy decode: ~3× faster than beam=3, good enough for captions ──
+    with torch.inference_mode():
+        output_ids = model.generate(
+            input_ids=inputs["input_ids"],
+            pixel_values=inputs["pixel_values"],
+            max_new_tokens=256,       # was 1024 — captions rarely need more
+            do_sample=False,
+            num_beams=1,              # greedy; was 3
+        )
+
+    generated_text = processor.batch_decode(output_ids, skip_special_tokens=False)[0]
+    result = processor.post_process_generation(
         generated_text,
         task="<MORE_DETAILED_CAPTION>",
-        image_size=(image.width, image.height)
+        image_size=(image.width, image.height),
     )
-    prompt =  parsed_answer["<MORE_DETAILED_CAPTION>"]
-    print("\n\nGeneration completed!:"+ prompt)
-    return prompt
-    # yield prompt, None
-    # image_path = generate_image(prompt,random.randint(0, 4294967296))
-    # yield prompt, image_path 
+    caption = result["<MORE_DETAILED_CAPTION>"]
 
-# def generate_image(prompt, seed=42, width=1024, height=1024):
-#     try:
-#         result = Client("KingNish/Realtime-FLUX", hf_token=api_key).predict(
-#             prompt=prompt,
-#             seed=seed,
-#             width=width,
-#             height=height,
-#             api_name="/generate_image"
-#         )
-#         # Extract the image path from the result tuple
-#         image_path = result[0]
-#         return image_path 
-#     except Exception as e:
-#         raise Exception(f"Error generating image: {str(e)}")
- 
-io = gr.Interface(generate_caption,
-                  inputs=[gr.Image(label="Input Image")],
-                  outputs = [gr.Textbox(label="Output Prompt", lines=2, show_copy_button = True),
-                             # gr.Image(label="Output Image")
-                            ],
-                  deep_link=False
-                 )
-io.launch(debug=True)
+    # ── Simulate streaming: yield word-by-word for live feel ──
+    words = caption.split()
+    partial = ""
+    for word in words:
+        partial += ("" if partial == "" else " ") + word
+        yield partial
+
+    print(f"\nFinal caption: {caption}")
+
+
+with gr.Blocks(title="EchoLens RT") as demo:
+    # Inject speech JS once
+    gr.HTML(SPEECH_JS)
+
+    gr.Markdown("# 👁️ EchoLens — Realtime Captioning + Speech")
+    gr.Markdown("Upload or capture an image. Caption streams live and is read aloud automatically.")
+
+    with gr.Row():
+        with gr.Column(scale=1):
+            image_input = gr.Image(
+                label="Image",
+                type="numpy",
+                sources=["upload", "webcam"],   # webcam support
+            )
+            btn = gr.Button("Describe Image ▶", variant="primary")
+
+        with gr.Column(scale=1):
+            caption_out = gr.Textbox(
+                label="Caption",
+                lines=5,
+                interactive=False,
+                elem_id="caption-output",      # JS watches this ID
+                show_copy_button=True,
+            )
+
+    btn.click(
+        fn=generate_caption_stream,
+        inputs=image_input,
+        outputs=caption_out,
+        show_progress=False,
+    )
+
+    # Also trigger on image change for true realtime feel
+    image_input.change(
+        fn=generate_caption_stream,
+        inputs=image_input,
+        outputs=caption_out,
+        show_progress=False,
+    )
+
+if __name__ == "__main__":
+    demo.launch(debug=True)
