@@ -13,7 +13,6 @@ model = AutoModelForCausalLM.from_pretrained(
 
 processor = AutoProcessor.from_pretrained('microsoft/Florence-2-base', trust_remote_code=True)
 
-# ── JS injected into Gradio to trigger browser speech on caption update ──
 SPEECH_JS = """
 <script>
 function speakCaption(text) {
@@ -25,17 +24,20 @@ function speakCaption(text) {
     window.speechSynthesis.speak(utt);
 }
 
-// Watch the caption textbox for changes, speak when it stops updating
 let debounce;
+let lastSpoken = "";
+
 const observer = new MutationObserver(() => {
     clearTimeout(debounce);
     debounce = setTimeout(() => {
         const el = document.querySelector('#caption-output textarea');
-        if (el && el.value) speakCaption(el.value);
-    }, 400);   // 400 ms after last token → speak
+        if (el && el.value && el.value !== lastSpoken && !el.value.startsWith("Please")) {
+            lastSpoken = el.value;
+            speakCaption(el.value);
+        }
+    }, 400);
 });
 
-// Wait for DOM to be ready then attach observer
 window.addEventListener('load', () => {
     const attach = () => {
         const el = document.querySelector('#caption-output textarea');
@@ -52,7 +54,6 @@ window.addEventListener('load', () => {
 
 
 def generate_caption_stream(image):
-    """Stream caption tokens live into the textbox."""
     if image is None:
         yield "Please upload or capture an image."
         return
@@ -66,14 +67,13 @@ def generate_caption_stream(image):
         return_tensors="pt"
     ).to(device)
 
-    # ── Greedy decode: ~3× faster than beam=3, good enough for captions ──
     with torch.inference_mode():
         output_ids = model.generate(
             input_ids=inputs["input_ids"],
             pixel_values=inputs["pixel_values"],
-            max_new_tokens=256,       # was 1024 — captions rarely need more
+            max_new_tokens=256,
             do_sample=False,
-            num_beams=1,              # greedy; was 3
+            num_beams=1,
         )
 
     generated_text = processor.batch_decode(output_ids, skip_special_tokens=False)[0]
@@ -84,7 +84,6 @@ def generate_caption_stream(image):
     )
     caption = result["<MORE_DETAILED_CAPTION>"]
 
-    # ── Simulate streaming: yield word-by-word for live feel ──
     words = caption.split()
     partial = ""
     for word in words:
@@ -95,7 +94,6 @@ def generate_caption_stream(image):
 
 
 with gr.Blocks(title="EchoLens RT") as demo:
-    # Inject speech JS once
     gr.HTML(SPEECH_JS)
 
     gr.Markdown("# 👁️ EchoLens — Realtime Captioning + Speech")
@@ -106,7 +104,7 @@ with gr.Blocks(title="EchoLens RT") as demo:
             image_input = gr.Image(
                 label="Image",
                 type="numpy",
-                sources=["upload", "webcam"],   # webcam support
+                sources=["upload", "webcam"],
             )
             btn = gr.Button("Describe Image ▶", variant="primary")
 
@@ -115,7 +113,7 @@ with gr.Blocks(title="EchoLens RT") as demo:
                 label="Caption",
                 lines=5,
                 interactive=False,
-                elem_id="caption-output",      # JS watches this ID
+                elem_id="caption-output",
                 show_copy_button=True,
             )
 
@@ -126,7 +124,6 @@ with gr.Blocks(title="EchoLens RT") as demo:
         show_progress=False,
     )
 
-    # Also trigger on image change for true realtime feel
     image_input.change(
         fn=generate_caption_stream,
         inputs=image_input,
