@@ -172,7 +172,7 @@ with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
                 type="numpy",
                 sources=["webcam"],
                 streaming=True,                        # fix: only works with webcam alone
-                webcam_options=gr.WebcamOptions(mirror_webcam=False),  # fix: replaces mirror_webcam
+                webcam_options=gr.WebcamOptions(mirror=False),  # fix
             )
             # Separate upload input
             upload_input = gr.Image(
