@@ -13,49 +13,10 @@ model = AutoModelForCausalLM.from_pretrained(
 
 processor = AutoProcessor.from_pretrained('microsoft/Florence-2-base', trust_remote_code=True)
 
-SPEECH_JS = """
-<script>
-function speakCaption(text) {
-    if (!text || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utt = new SpeechSynthesisUtterance(text);
-    utt.rate = 1.1;
-    utt.pitch = 1.0;
-    window.speechSynthesis.speak(utt);
-}
-
-let debounce;
-let lastSpoken = "";
-
-const observer = new MutationObserver(() => {
-    clearTimeout(debounce);
-    debounce = setTimeout(() => {
-        const el = document.querySelector('#caption-output textarea');
-        if (el && el.value && el.value !== lastSpoken && !el.value.startsWith("Please")) {
-            lastSpoken = el.value;
-            speakCaption(el.value);
-        }
-    }, 400);
-});
-
-window.addEventListener('load', () => {
-    const attach = () => {
-        const el = document.querySelector('#caption-output textarea');
-        if (el) {
-            observer.observe(el, { attributes: true, childList: true, subtree: true, characterData: true });
-        } else {
-            setTimeout(attach, 300);
-        }
-    };
-    attach();
-});
-</script>
-"""
-
 
 def generate_caption_stream(image):
     if image is None:
-        yield "Please upload or capture an image."
+        yield "Please upload or capture an image.", ""
         return
 
     if not isinstance(image, Image.Image):
@@ -84,20 +45,34 @@ def generate_caption_stream(image):
     )
     caption = result["<MORE_DETAILED_CAPTION>"]
 
+    # Stream word by word, no speech yet
     words = caption.split()
     partial = ""
     for word in words:
         partial += ("" if partial == "" else " ") + word
-        yield partial
+        yield partial, ""  # second output = speech trigger (empty during streaming)
 
+    # Final yield: trigger speech with the complete caption
+    safe = caption.replace("`", "'").replace("\\", "").replace("\n", " ")
+    speech_html = f"""
+        <script>
+            (function() {{
+                if (!window.speechSynthesis) return;
+                window.speechSynthesis.cancel();
+                var utt = new SpeechSynthesisUtterance(`{safe}`);
+                utt.rate = 1.1;
+                utt.pitch = 1.0;
+                window.speechSynthesis.speak(utt);
+            }})();
+        </script>
+    """
+    yield caption, speech_html
     print(f"\nFinal caption: {caption}")
 
 
 with gr.Blocks(title="EchoLens RT") as demo:
-    gr.HTML(SPEECH_JS)
-
     gr.Markdown("# 👁️ EchoLens — Realtime Captioning + Speech")
-    gr.Markdown("Upload or capture an image. Caption streams live and is read aloud automatically.")
+    gr.Markdown("Upload or capture an image. Caption streams live and is read aloud when complete.")
 
     with gr.Row():
         with gr.Column(scale=1):
@@ -113,21 +88,22 @@ with gr.Blocks(title="EchoLens RT") as demo:
                 label="Caption",
                 lines=5,
                 interactive=False,
-                elem_id="caption-output",
                 show_copy_button=True,
             )
+            # Hidden HTML component — receives a <script> tag to fire speech
+            speech_trigger = gr.HTML(value="", visible=False)
 
     btn.click(
         fn=generate_caption_stream,
         inputs=image_input,
-        outputs=caption_out,
+        outputs=[caption_out, speech_trigger],
         show_progress=False,
     )
 
     image_input.change(
         fn=generate_caption_stream,
         inputs=image_input,
-        outputs=caption_out,
+        outputs=[caption_out, speech_trigger],
         show_progress=False,
     )
 
