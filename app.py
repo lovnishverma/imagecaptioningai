@@ -435,8 +435,12 @@ body.fs-xlarge .gr-button { font-size: 22px !important; min-height: 60px !import
 # ═══════════════════════════════════════════════════════════════
 #  JAVASCRIPT  (Bug-fix #2: use input event, not MutationObserver)
 # ═══════════════════════════════════════════════════════════════
-JS_INIT = """
-<script>
+JS_INIT = ""  # JS moved to gr.Blocks(js=)
+
+# ═══════════════════════════════════════════════════════════════
+#  BUILD UI
+# ═══════════════════════════════════════════════════════════════
+_ECHO_JS = r"""
 (function(){
     let timer = null;
     let running = false;
@@ -559,15 +563,12 @@ JS_INIT = """
         }
     }, 18000);
 })();
-</script>
 """
 
-# ═══════════════════════════════════════════════════════════════
-#  BUILD UI
-# ═══════════════════════════════════════════════════════════════
 with gr.Blocks(
     title="EchoLens — Vision Assistant for the Blind",
     css=CSS,
+    js=_ECHO_JS,
     theme=gr.themes.Soft(),
 ) as demo:
 
