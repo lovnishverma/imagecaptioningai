@@ -54,16 +54,16 @@ def text_to_speech(text: str) -> str:
 
 
 def run_caption(image, task_choice):
-    """Core caption + TTS — used by both button and timer."""
+    """Non-streaming version used by timer tick."""
     if image is None:
-        return "", None
+        return gr.update(), gr.update()
 
     if not isinstance(image, Image.Image):
         image = Image.fromarray(image)
 
     h = image_hash(image)
     if h == last_caption["hash"] and last_caption["text"]:
-        return last_caption["text"], None   # same frame, skip
+        return gr.update(), gr.update()  # same frame, skip
 
     task_map = {
         "Quick (faster)": "<CAPTION>",
@@ -100,7 +100,7 @@ def run_caption(image, task_choice):
 
 
 def generate_caption_stream(image, task_choice):
-    """Streaming version for manual button — yields word by word."""
+    """Streaming version for manual button."""
     if image is None:
         yield "Please upload or capture an image.", None
         return
@@ -152,41 +152,33 @@ def generate_caption_stream(image, task_choice):
     yield caption, audio_path
 
 
-# ── State to track realtime mode ──
-realtime_on = {"value": False}
-
-def toggle_realtime(current_state):
-    realtime_on["value"] = not realtime_on["value"]
-    if realtime_on["value"]:
-        return gr.update(value="⏹ Stop Realtime", variant="stop")
-    else:
-        return gr.update(value="▶ Start Realtime", variant="secondary")
-
 def realtime_tick(image, task_choice, is_active):
-    """Called by gr.Timer every N seconds. Only runs if realtime is active."""
     if not is_active:
         return gr.update(), gr.update()
-    caption, audio = run_caption(image, task_choice)
-    if not caption:
-        return gr.update(), gr.update()
-    return caption, audio
+    return run_caption(image, task_choice)
 
 
 with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
     gr.Markdown("# 👁️ EchoLens — Realtime Vision Assistant")
     gr.Markdown("For blind and visually impaired users. Use **Start Realtime** for continuous camera description.")
 
-    # State
     is_realtime = gr.State(False)
 
     with gr.Row():
         with gr.Column(scale=1):
-            image_input = gr.Image(
-                label="Camera",
+            # Webcam-only input for streaming mode
+            webcam_input = gr.Image(
+                label="Live Camera",
                 type="numpy",
-                sources=["webcam", "upload"],
-                mirror_webcam=False,
-                streaming=True,       # streams webcam frames continuously
+                sources=["webcam"],
+                streaming=True,                        # fix: only works with webcam alone
+                webcam_options=gr.WebcamOptions(mirror_webcam=False),  # fix: replaces mirror_webcam
+            )
+            # Separate upload input
+            upload_input = gr.Image(
+                label="Or Upload Image",
+                type="numpy",
+                sources=["upload"],
             )
             task_choice = gr.Radio(
                 choices=["Quick (faster)", "Detailed (slower)"],
@@ -211,30 +203,38 @@ with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
             )
             gr.Markdown("*Realtime mode describes every 3 seconds automatically.*")
 
-    # Timer fires every 3 seconds
     timer = gr.Timer(value=3, active=False)
 
-    # Manual describe
+    # Manual describe — works with both webcam and upload
     btn.click(
         fn=generate_caption_stream,
-        inputs=[image_input, task_choice],
+        inputs=[webcam_input, task_choice],
+        outputs=[caption_out, audio_out],
+        show_progress=False,
+    )
+    upload_input.change(
+        fn=generate_caption_stream,
+        inputs=[upload_input, task_choice],
         outputs=[caption_out, audio_out],
         show_progress=False,
     )
 
-    # Toggle realtime on/off
+    # Toggle realtime
     realtime_btn.click(
-        fn=lambda s: (not s, gr.update(value="⏹ Stop Realtime" if not s else "▶ Start Realtime",
-                                        variant="stop" if not s else "secondary"),
-                      gr.Timer(active=not s)),
+        fn=lambda s: (
+            not s,
+            gr.update(value="⏹ Stop Realtime" if not s else "▶ Start Realtime",
+                      variant="stop" if not s else "secondary"),
+            gr.Timer(active=not s),
+        ),
         inputs=[is_realtime],
         outputs=[is_realtime, realtime_btn, timer],
     )
 
-    # Timer tick → describe current frame
+    # Timer tick
     timer.tick(
         fn=realtime_tick,
-        inputs=[image_input, task_choice, is_realtime],
+        inputs=[webcam_input, task_choice, is_realtime],
         outputs=[caption_out, audio_out],
         show_progress=False,
     )
