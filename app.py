@@ -349,15 +349,15 @@ def handle_repeat(voice_name: str):
     with state.lock:
         text = state.text
     if not text:
-        return "", "Nothing to repeat.", None
+        return gr.update(), gr.update(value=None)
     voice_id = VOICE_MAP.get(voice_name, "en-US-AriaNeural")
     audio = text_to_speech(text, voice_id)
-    return text, "Repeating last description.", audio
+    return text, audio
 
 
 def handle_stop():
     """Silence."""
-    return "", "", None
+    return gr.update(value=""), gr.update(value=None)
 
 # ═══════════════════════════════════════════════════════════════
 #  CSS
@@ -466,36 +466,45 @@ JS_INIT = """
         c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
         const b64 = c.toDataURL('image/jpeg', 0.72);
 
+        /* FIX: use the dedicated elem_id instead of column selector */
         const ta = document.querySelector('#echo-frame-box textarea');
         if(!ta){ console.warn('[EchoLens] frame-box not found'); return; }
         setTA(ta, b64);
 
         setTimeout(()=>{
-            const btn = document.querySelector('#echo-frame-col button');
+            /* FIX: target button by its own elem_id, not parent column */
+            const btn = document.querySelector('#echo-frame-btn button');
             if(btn) btn.click();
             else console.warn('[EchoLens] frame-btn not found');
-        }, 100);
+        }, 120);
     }
 
     /* ── toggle realtime ── */
-    window.echoStart = function(){
+    function echoStart(){
         if(running) return;
         running = true;
-        document.getElementById('rt-indicator')?.classList.add('active');
+        const ind = document.getElementById('rt-indicator');
+        if(ind) ind.classList.add('active');
         status('Realtime ON — describing every 3.5 seconds');
         capture();
         timer = setInterval(capture, 3500);
-    };
-    window.echoStop = function(){
+    }
+    function echoStop(){
         if(!running) return;
         running = false;
         clearInterval(timer); timer = null;
-        document.getElementById('rt-indicator')?.classList.remove('active');
+        const ind = document.getElementById('rt-indicator');
+        if(ind) ind.classList.remove('active');
         status('Realtime stopped.');
-    };
-    window.echoToggle = function(){
-        running ? window.echoStop() : window.echoStart();
-    };
+    }
+    function echoToggle(){
+        running ? echoStop() : echoStart();
+    }
+
+    /* FIX: expose globals immediately so onclick="echoToggle()" works */
+    window.echoStart  = echoStart;
+    window.echoStop   = echoStop;
+    window.echoToggle = echoToggle;
 
     /* ── accessibility controls ── */
     window.echoFontSize = function(size){
@@ -683,8 +692,7 @@ with gr.Blocks(
     # ── Hidden plumbing (JS → Python frame relay) ────────────
     with gr.Row(visible=False):
         frame_box = gr.Textbox(elem_id="echo-frame-box", label="fb")
-        with gr.Column(elem_id="echo-frame-col"):
-            frame_btn = gr.Button("go")
+        frame_btn = gr.Button("go", elem_id="echo-frame-btn")
 
     # ═══════════════════════════════════════════════════════
     #  EVENT WIRING
@@ -714,8 +722,7 @@ with gr.Blocks(
     repeat_btn.click(
         handle_repeat,
         inputs=[voice_choice],
-        outputs=[caption_out, status_out, audio_out]
-        if 'status_out' in dir() else [caption_out, audio_out],
+        outputs=[caption_out, audio_out],
         show_progress=False,
     )
 
