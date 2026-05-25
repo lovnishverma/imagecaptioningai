@@ -571,13 +571,18 @@ def format_object_detection(od_data: Dict) -> str:
 # ═══════════════════════════════════════════════════════════════
 
 
+def _status_html(msg: str) -> str:
+    """Wrap a status message in the styled status-bar div."""
+    return f'<div id="echo-status" role="status" aria-live="polite">{msg}</div>'
+
+
 def describe_now(image, task_label: str, voice_name: str):
     """
     Manual describe handler.
     Streams words visually, then returns final text + audio.
     """
     if image is None:
-        yield "📷 Please open the camera or upload an image first.", None, "Waiting for image..."
+        yield "📷 Please open the camera or upload an image first.", None, _status_html("Waiting for image...")
         return
 
     # Convert to PIL if needed
@@ -591,11 +596,11 @@ def describe_now(image, task_label: str, voice_name: str):
     # Check cache
     if APP_STATE.is_duplicate(img_hash, task_key):
         text, audio = APP_STATE.get_last()
-        yield text, audio, f"✓ Cached result • {task_label}"
+        yield text, audio, _status_html(f"✓ Cached result • {task_label}")
         return
 
     # Run inference
-    yield "⏳ Analyzing image...", None, "Processing..."
+    yield "⏳ Analyzing image...", None, _status_html("⏳ Processing image...")
 
     caption = run_inference(image, task_label)
     APP_STATE.add_stat("describe")
@@ -606,7 +611,7 @@ def describe_now(image, task_label: str, voice_name: str):
     for i, w in enumerate(words):
         partial += (" " if partial else "") + w
         if (i + 1) % 3 == 0 or i == len(words) - 1:
-            yield partial, None, f"⏳ Speaking... ({i + 1}/{len(words)} words)"
+            yield partial, None, _status_html(f"⏳ Generating description... ({i + 1}/{len(words)} words)")
 
     # Generate TTS
     voice_id = VOICE_MAP.get(voice_name, "en-US-AriaNeural")
@@ -615,12 +620,41 @@ def describe_now(image, task_label: str, voice_name: str):
     # Update state
     APP_STATE.update(img_hash, task_key, caption, audio_path)
 
-    yield caption, audio_path, f"✓ {task_label} • {len(words)} words"
+    yield caption, audio_path, _status_html(f"✅ {task_label} complete • {len(words)} words")
 
 
 def handle_upload(image, task_label: str, voice_name: str):
-    """Handle uploaded image — same as describe."""
-    yield from describe_now(image, task_label, voice_name)
+    """Handle uploaded image — always processes fresh, bypasses scene cache."""
+    if image is None:
+        yield "📁 Please upload an image first.", None, _status_html("Waiting for upload...")
+        return
+
+    # Convert to PIL if needed
+    if not isinstance(image, Image.Image):
+        image = Image.fromarray(image)
+
+    yield "⏳ Analyzing uploaded image...", None, _status_html("⏳ Processing uploaded image...")
+
+    caption = run_inference(image, task_label)
+    APP_STATE.add_stat("describe")
+
+    # Stream words visually
+    words = caption.split()
+    partial = ""
+    for i, w in enumerate(words):
+        partial += (" " if partial else "") + w
+        if (i + 1) % 3 == 0 or i == len(words) - 1:
+            yield partial, None, _status_html(f"⏳ Generating description... ({i + 1}/{len(words)} words)")
+
+    # Generate TTS
+    voice_id = VOICE_MAP.get(voice_name, "en-US-AriaNeural")
+    audio_path = text_to_speech(caption, voice_id)
+
+    # Update app state
+    img_hash = compute_hash(image)
+    APP_STATE.update(img_hash, TASKS.get(task_label, "<CAPTION>"), caption, audio_path)
+
+    yield caption, audio_path, _status_html(f"✅ Upload — {task_label} complete • {len(words)} words")
 
 
 def handle_realtime_stream(image, task_label: str, voice_name: str, rt_active: bool):
@@ -629,10 +663,10 @@ def handle_realtime_stream(image, task_label: str, voice_name: str, rt_active: b
     Only processes if realtime toggle is ON.
     """
     if not rt_active:
-        return gr.update(), gr.update(), "Realtime paused — press R to start"
+        return gr.update(), gr.update(), _status_html("⚫ Realtime paused — press R to start")
 
     if image is None:
-        return gr.update(), gr.update(), "No camera feed detected"
+        return gr.update(), gr.update(), _status_html("📷 No camera feed detected")
 
     # Convert to PIL
     if not isinstance(image, Image.Image):
@@ -641,7 +675,7 @@ def handle_realtime_stream(image, task_label: str, voice_name: str, rt_active: b
     # Debounce check
     now = time.time()
     if now - APP_STATE.last_capture_time < 1.0:
-        return gr.update(), gr.update(), "⏳ Debouncing..."
+        return gr.update(), gr.update(), _status_html("⏳ Debouncing...")
     APP_STATE.last_capture_time = now
 
     # Compute hash
@@ -655,7 +689,7 @@ def handle_realtime_stream(image, task_label: str, voice_name: str, rt_active: b
             return (
                 gr.update(),
                 gr.update(),
-                f"🟢 Realtime active • Scene unchanged (similarity: {1 - dist:.0%})",
+                _status_html(f"🟢 Realtime active • Scene unchanged ({1 - dist:.0%} similar)"),
             )
 
     # Cache check
@@ -664,7 +698,7 @@ def handle_realtime_stream(image, task_label: str, voice_name: str, rt_active: b
         return (
             text,
             audio,
-            f"🟢 Realtime active • Used cached result",
+            _status_html("🟢 Realtime active • Used cached result"),
         )
 
     # Run inference
@@ -679,7 +713,7 @@ def handle_realtime_stream(image, task_label: str, voice_name: str, rt_active: b
     APP_STATE.update(img_hash, task_key, caption, audio_path)
 
     dist = hash_distance(img_hash, APP_STATE.last_hash) if APP_STATE.last_hash else 1.0
-    status = f"🟢 Realtime active • Scene changed ({1 - dist:.0%} similar) • {len(caption.split())} words"
+    status = _status_html(f"🟢 Realtime active • Scene changed • {len(caption.split())} words")
 
     return caption, audio_path, status
 
@@ -689,11 +723,11 @@ def toggle_realtime(current: bool) -> Tuple[bool, str, str]:
     new_state = not current
     if new_state:
         label = "🟢 Stop Realtime (R)"
-        status = "🟢 Realtime ON — describing every 3 seconds"
+        status = _status_html("🟢 Realtime ON — describing every 3 seconds")
     else:
         AUDIO_QUEUE.interrupt()
         label = "⚫ Start Realtime (R)"
-        status = "⚫ Realtime OFF — press R or click to start"
+        status = _status_html("⚫ Realtime OFF — press R or click to start")
     return new_state, label, status
 
 
@@ -701,18 +735,18 @@ def repeat_last(voice_name: str):
     """Repeat the last description."""
     text, _ = APP_STATE.get_last()
     if not text:
-        return "No previous description to repeat.", None, "No history available"
+        return "No previous description to repeat.", None, _status_html("ℹ️ No history available")
 
     voice_id = VOICE_MAP.get(voice_name, "en-US-AriaNeural")
     audio_path = text_to_speech(text, voice_id)
 
-    return text, audio_path, "🔁 Repeated last description"
+    return text, audio_path, _status_html("🔁 Repeated last description")
 
 
 def stop_all():
     """Stop all audio and clear state."""
     AUDIO_QUEUE.interrupt()
-    return "", None, "⏹ Stopped — press D to describe or R for realtime"
+    return "", None, _status_html("⏹ Stopped — press D to describe or R for realtime")
 
 
 def get_history() -> str:
@@ -1241,53 +1275,68 @@ def build_ui() -> gr.Blocks:
         # ═══════════════════════════════════════════════════
         gr.HTML("""
         <script>
+        // Helper: finds the real <button> inside a Gradio wrapper by elem_id
+        function gradioBtn(id) {
+            var wrapper = document.getElementById(id);
+            if (!wrapper) return null;
+            // Gradio wraps buttons in a div; the real <button> is inside
+            return wrapper.tagName === 'BUTTON' ? wrapper : wrapper.querySelector('button');
+        }
+
+        function clickGradioBtn(id) {
+            var btn = gradioBtn(id);
+            if (btn) {
+                btn.click();
+                return true;
+            }
+            return false;
+        }
+
         document.addEventListener('keydown', function(e) {
             // Don't trigger shortcuts when typing in inputs
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
                 return;
             }
 
-            const key = e.key.toLowerCase();
+            var key = e.key.toLowerCase();
 
             if (key === 'd') {
                 e.preventDefault();
-                const btn = document.getElementById('echo-describe-btn');
-                if (btn) btn.click();
+                clickGradioBtn('echo-describe-btn');
             }
             else if (key === 'r') {
                 e.preventDefault();
-                const btn = document.getElementById('echo-rt-btn');
-                if (btn) btn.click();
+                clickGradioBtn('echo-rt-btn');
             }
             else if (key === 'p') {
                 e.preventDefault();
-                const btn = document.getElementById('echo-repeat-btn');
-                if (btn) btn.click();
+                clickGradioBtn('echo-repeat-btn');
             }
             else if (key === 'escape') {
                 e.preventDefault();
-                const btn = document.getElementById('echo-stop-btn');
-                if (btn) btn.click();
+                clickGradioBtn('echo-stop-btn');
             }
         });
 
         // Announce to screen readers
         function announce(message) {
-            const live = document.getElementById('aria-live-region');
+            var live = document.getElementById('aria-live-region');
             if (live) {
                 live.textContent = message;
-                setTimeout(() => { live.textContent = ''; }, 1000);
+                setTimeout(function() { live.textContent = ''; }, 1000);
             }
         }
 
         // Hook button clicks for announcements
         document.addEventListener('click', function(e) {
-            const btn = e.target.closest('button');
+            var btn = e.target.closest('button');
             if (!btn) return;
-            if (btn.id === 'echo-describe-btn') announce('Describing scene');
-            if (btn.id === 'echo-rt-btn') announce('Toggling realtime mode');
-            if (btn.id === 'echo-repeat-btn') announce('Repeating last description');
-            if (btn.id === 'echo-stop-btn') announce('Stopping all audio');
+            var wrapper = btn.closest('[id]');
+            if (!wrapper) return;
+            if (wrapper.id === 'echo-describe-btn') announce('Describing scene');
+            if (wrapper.id === 'echo-rt-btn') announce('Toggling realtime mode');
+            if (wrapper.id === 'echo-repeat-btn') announce('Repeating last description');
+            if (wrapper.id === 'echo-stop-btn') announce('Stopping all audio');
         });
         </script>
         """)
