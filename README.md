@@ -13,7 +13,7 @@ short_description: Image to Caption
 
 # 👁️ EchoLens 2.0 — Realtime Vision Assistant for Blind & Low-Vision Users
 
-[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces)
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://lovnishverma-imagecaptioningai.hf.space/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Gradio](https://img.shields.io/badge/Gradio-5.34.2-orange)](https://gradio.app)
 [![Model: Florence-2](https://img.shields.io/badge/Model-Florence--2--base-purple)](https://huggingface.co/microsoft/Florence-2-base)
