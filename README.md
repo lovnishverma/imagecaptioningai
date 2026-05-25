@@ -1,13 +1,14 @@
 ---
 title: Imagecaptioningai
 emoji: 🌍
-colorFrom: green
-colorTo: pink
+colorFrom: purple
+colorTo: blue
 sdk: gradio
-sdk_version: 6.14.0
-python_version: '3.13'
+sdk_version: 5.34.2
 app_file: app.py
-pinned: false
+pinned: true
+license: apache-2.0
+short_description: Image to Caption
 ---
 
 Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
