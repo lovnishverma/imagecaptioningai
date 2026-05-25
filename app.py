@@ -54,7 +54,6 @@ def text_to_speech(text: str) -> str:
 
 
 def run_caption(image, task_choice):
-    """Non-streaming version used by timer tick."""
     if image is None:
         return gr.update(), gr.update()
 
@@ -63,7 +62,7 @@ def run_caption(image, task_choice):
 
     h = image_hash(image)
     if h == last_caption["hash"] and last_caption["text"]:
-        return gr.update(), gr.update()  # same frame, skip
+        return gr.update(), gr.update()
 
     task_map = {
         "Quick (faster)": "<CAPTION>",
@@ -100,7 +99,6 @@ def run_caption(image, task_choice):
 
 
 def generate_caption_stream(image, task_choice):
-    """Streaming version for manual button."""
     if image is None:
         yield "Please upload or capture an image.", None
         return
@@ -152,13 +150,78 @@ def generate_caption_stream(image, task_choice):
     yield caption, audio_path
 
 
-def realtime_tick(image, task_choice, is_active):
-    if not is_active:
+def realtime_tick(snapshot, task_choice, is_active):
+    """Timer calls this — snapshot is set by JS auto-capture."""
+    if not is_active or snapshot is None:
         return gr.update(), gr.update()
-    return run_caption(image, task_choice)
+    return run_caption(snapshot, task_choice)
+
+
+# ── JS: auto-snapshot webcam into hidden gr.Image every 3s ──
+WEBCAM_JS = """
+<script>
+let realtimeInterval = null;
+
+function startRealtimeCapture() {
+    if (realtimeInterval) return;
+    realtimeInterval = setInterval(() => {
+        // Find the webcam video element
+        const video = document.querySelector('video');
+        if (!video || video.readyState < 2) return;
+
+        // Draw frame to canvas
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0);
+
+        // Convert to blob and set on the hidden snapshot component
+        canvas.toBlob((blob) => {
+            const file = new File([blob], 'snapshot.jpg', { type: 'image/jpeg' });
+            const dt = new DataTransfer();
+            dt.items.add(file);
+
+            // Find the snapshot upload input (second image component)
+            const inputs = document.querySelectorAll('input[type=file]');
+            if (inputs.length >= 2) {
+                inputs[1].files = dt.files;
+                inputs[1].dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        }, 'image/jpeg', 0.8);
+    }, 3000);
+}
+
+function stopRealtimeCapture() {
+    if (realtimeInterval) {
+        clearInterval(realtimeInterval);
+        realtimeInterval = null;
+    }
+}
+
+// Listen for realtime toggle button clicks
+window.addEventListener('load', () => {
+    const observer = new MutationObserver(() => {
+        const btn = document.querySelector('button[aria-label="realtime-btn"]') ||
+                    [...document.querySelectorAll('button')].find(b => b.textContent.includes('Start Realtime') || b.textContent.includes('Stop Realtime'));
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if (btn.textContent.includes('Stop')) {
+                    startRealtimeCapture();
+                } else {
+                    stopRealtimeCapture();
+                }
+            });
+        }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+});
+</script>
+"""
 
 
 with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
+    gr.HTML(WEBCAM_JS)
     gr.Markdown("# 👁️ EchoLens — Realtime Vision Assistant")
     gr.Markdown("For blind and visually impaired users. Use **Start Realtime** for continuous camera description.")
 
@@ -166,15 +229,20 @@ with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
 
     with gr.Row():
         with gr.Column(scale=1):
-            # Webcam-only input for streaming mode
+            # Live webcam — user sees this
             webcam_input = gr.Image(
                 label="Live Camera",
                 type="numpy",
                 sources=["webcam"],
-                streaming=True,                        # fix: only works with webcam alone
-                webcam_options=gr.WebcamOptions(mirror=False),  # fix
+                # No streaming=True — just snapshots
             )
-            # Separate upload input
+            # Hidden: receives auto-snapshots from JS for realtime mode
+            snapshot_input = gr.Image(
+                label="Snapshot (auto)",
+                type="numpy",
+                sources=["upload"],
+                visible=False,
+            )
             upload_input = gr.Image(
                 label="Or Upload Image",
                 type="numpy",
@@ -205,13 +273,15 @@ with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
 
     timer = gr.Timer(value=3, active=False)
 
-    # Manual describe — works with both webcam and upload
+    # Manual describe
     btn.click(
         fn=generate_caption_stream,
         inputs=[webcam_input, task_choice],
         outputs=[caption_out, audio_out],
         show_progress=False,
     )
+
+    # Upload triggers caption
     upload_input.change(
         fn=generate_caption_stream,
         inputs=[upload_input, task_choice],
@@ -219,19 +289,29 @@ with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
         show_progress=False,
     )
 
-    # Toggle realtime
+    # Snapshot change (from JS auto-capture) triggers caption
+    snapshot_input.change(
+        fn=run_caption,
+        inputs=[snapshot_input, task_choice],
+        outputs=[caption_out, audio_out],
+        show_progress=False,
+    )
+
+    # Toggle realtime timer
     realtime_btn.click(
         fn=lambda s: (
             not s,
-            gr.update(value="⏹ Stop Realtime" if not s else "▶ Start Realtime",
-                      variant="stop" if not s else "secondary"),
+            gr.update(
+                value="⏹ Stop Realtime" if not s else "▶ Start Realtime",
+                variant="stop" if not s else "secondary"
+            ),
             gr.Timer(active=not s),
         ),
         inputs=[is_realtime],
         outputs=[is_realtime, realtime_btn, timer],
     )
 
-    # Timer tick
+    # Timer tick — reads last webcam snapshot
     timer.tick(
         fn=realtime_tick,
         inputs=[webcam_input, task_choice, is_realtime],
