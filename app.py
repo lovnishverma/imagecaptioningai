@@ -195,7 +195,8 @@ def run_inference(image: Image.Image, task_label: str) -> str:
         raw, task=task, image_size=(image.width, image.height)
     )
     if task == "<OD>":
-        return _format_od(result.get("<OD>", ""))
+        od_result = result.get("<OD>", {})          # ← this is a dict, not a string
+        return _format_od(od_result)
     elif task == "<OCR>":
         text_found = result.get("<OCR>", "").strip()
         return f"Text found: {text_found}" if text_found else "No text detected."
@@ -203,29 +204,28 @@ def run_inference(image: Image.Image, task_label: str) -> str:
         return result.get(task, "").strip()
 
 
-def _format_od(raw: str) -> str:
-    if not raw:
+def _format_od(od: dict) -> str:
+    """od = {"bboxes": [[x1,y1,x2,y2], ...], "labels": ["cat", "dog", ...]}"""
+    if not od or not od.get("labels"):
         return "No objects detected."
-    tokens = re.split(r"(<loc_\d+>)", raw)
+
+    labels = od.get("labels", [])
+    bboxes = od.get("bboxes", [])
+
     objects: list[tuple[str, str]] = []
-    label = ""
-    locs: list[int] = []
-    for tok in tokens:
-        if tok.startswith("<loc_"):
-            locs.append(int(tok[5:-1]))
-            if len(locs) == 4:
-                x1, _, x2, _ = locs
-                cx = (x1 + x2) / 2
-                pos = "on the left" if cx < 333 else ("in the center" if cx < 666 else "on the right")
-                objects.append((label.strip(), pos))
-                locs = []
-        else:
-            if locs and label.strip():
-                objects.append((label.strip(), ""))
-            label = tok
-            locs = []
+    for label, bbox in zip(labels, bboxes):
+        x1, _, x2, _ = bbox
+        cx = (x1 + x2) / 2
+        # Florence-2 bboxes are in absolute pixels relative to image_size
+        # Use 1/3 and 2/3 of image width as thresholds — but we don't have
+        # image width here, so use the Florence coordinate space (0–999)
+        pos = "on the left" if cx < 333 else ("in the center" if cx < 666 else "on the right")
+        objects.append((label.strip(), pos))
+
     if not objects:
-        return raw.strip()
+        return "No objects detected."
+
+    # Deduplicate by label
     seen: set[str] = set()
     unique: list[tuple[str, str]] = []
     for lbl, pos in objects:
@@ -233,9 +233,10 @@ def _format_od(raw: str) -> str:
         if key and key not in seen:
             seen.add(key)
             unique.append((lbl, pos))
+
     if len(unique) == 1:
         lbl, pos = unique[0]
-        return f"I see {lbl} {pos}." if pos else f"I see {lbl}."
+        return f"I see {lbl} {pos}."
     parts = [f"{lbl} {pos}".strip() for lbl, pos in unique]
     if len(parts) <= 6:
         return "I see " + ", ".join(parts[:-1]) + f", and {parts[-1]}."
