@@ -1,5 +1,5 @@
 ---
-title: Imagecaptioningai
+title: EchoLens 2.0
 emoji: 🌍
 colorFrom: purple
 colorTo: blue
@@ -8,10 +8,10 @@ sdk_version: 5.34.2
 app_file: app.py
 pinned: true
 license: apache-2.0
-short_description: Image to Caption
+short_description: Image to Caption using AI
 ---
 
-# 👁️ EchoLens — Realtime Vision Assistant for Blind & Low-Vision Users
+# 👁️ EchoLens 2.0 — Realtime Vision Assistant for Blind & Low-Vision Users
 
 [![Hugging Face Spaces](https://img.shields.io/badge/🤗%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
