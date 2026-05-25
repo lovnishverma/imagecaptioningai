@@ -1,10 +1,10 @@
 """
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  ECHOLENS — Realtime Vision Assistant for Blind & Low-Vision Users         ║
-║                                                                              ║
+╔════════════════════════════════════════════════════════════════════════════════╗
+║  ECHOLENS — Realtime Vision Assistant for Blind & Low-Vision Users             ║
+║                                                                                ║
 ║  Keyboard:  D = Describe  ·  R = Toggle realtime  ·  Esc = Stop  ·  P = Repeat ║
-║  Voice Commands: Click "Enable Voice Commands" for hands-free control       ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+║  Voice Commands: Click "Enable Voice Commands" for hands-free control          ║
+╚════════════════════════════════════════════════════════════════════════════════╝
 """
 
 from __future__ import annotations
@@ -56,13 +56,13 @@ class Config:
 
     # Model
     MODEL_NAME: str = "microsoft/Florence-2-base"
-    MAX_NEW_TOKENS: Dict[str, int] = field(default_factory=lambda: {
+    MAX_NEW_TOKENS: Dict[str, int] = {
         "<CAPTION>": 64,
         "<DETAILED_CAPTION>": 120,
         "<MORE_DETAILED_CAPTION>": 200,
         "<OD>": 256,
         "<OCR>": 300,
-    })
+    }
 
     # UI
     APP_NAME: str = "EchoLens"
