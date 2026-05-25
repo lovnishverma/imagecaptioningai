@@ -56,8 +56,7 @@ def text_to_speech(text: str) -> str:
 
 
 def describe_frame(frame_b64: str, task_choice: str):
-    """Called every 3s by JS via hidden button. Receives raw base64 jpeg."""
-    if not frame_b64 or frame_b64 == "none" or "," not in frame_b64:
+    if not frame_b64 or "," not in frame_b64:
         return gr.update(), gr.update()
     try:
         img_bytes = base64.b64decode(frame_b64.split(",")[1])
@@ -102,10 +101,9 @@ def describe_frame(frame_b64: str, task_choice: str):
     return caption, audio_path
 
 
-def describe_once(image, task_choice):
-    """Manual describe with word streaming."""
+def describe_upload(image, task_choice):
     if image is None:
-        yield "Please open the camera first.", None
+        yield "Please upload an image.", None
         return
     if not isinstance(image, Image.Image):
         image = Image.fromarray(image)
@@ -134,118 +132,22 @@ def describe_once(image, task_choice):
     last_caption["text"] = caption
     last_caption["hash"] = image_hash(image)
 
-    for word in caption.split():
-        yield (caption[:caption.index(word) + len(word)]), None
+    words = caption.split()
+    partial = ""
+    for word in words:
+        partial += ("" if partial == "" else " ") + word
+        yield partial, None
 
     audio_path = text_to_speech(caption)
     yield caption, audio_path
 
 
-def describe_upload(image, task_choice):
-    """Upload image describe with streaming."""
-    if image is None:
-        yield "Please upload an image.", None
-        return
-    yield from describe_once(image, task_choice)
-
-
-WEBCAM_JS = """
-<script>
-(function() {
-    let realtimeTimer = null;
-    let isRunning = false;
-
-    function getVideo() {
-        // Gradio renders webcam inside shadow DOM or iframe — try all videos
-        const videos = document.querySelectorAll('video');
-        for (const v of videos) {
-            if (v.videoWidth > 0 && v.readyState >= 2) return v;
-        }
-        return null;
-    }
-
-    function setNativeValue(el, value) {
-        const setter = Object.getOwnPropertyDescriptor(
-            window.HTMLTextAreaElement.prototype, 'value'
-        ).set;
-        setter.call(el, value);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-
-    function captureAndSend() {
-        const video = getVideo();
-        if (!video) {
-            console.warn('[EchoLens] No active video found');
-            return;
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width  = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        const b64 = canvas.toDataURL('image/jpeg', 0.75);
-
-        const box = document.querySelector('#frame-box textarea');
-        if (!box) { console.warn('[EchoLens] No frame-box textarea'); return; }
-        setNativeValue(box, b64);
-
-        setTimeout(() => {
-            const btn = document.querySelector('#frame-btn button');
-            if (btn) {
-                btn.click();
-                console.log('[EchoLens] Frame sent');
-            } else {
-                console.warn('[EchoLens] No frame-btn button');
-            }
-        }, 150);
-    }
-
-    window.echoToggleRealtime = function() {
-        const toggleBtn = document.querySelector('#rt-btn button');
-        if (!isRunning) {
-            isRunning = true;
-            if (toggleBtn) {
-                toggleBtn.textContent = '⏹ Stop Realtime';
-                toggleBtn.style.background = '#ef4444';
-                toggleBtn.style.color = 'white';
-            }
-            captureAndSend();
-            realtimeTimer = setInterval(captureAndSend, 3000);
-            console.log('[EchoLens] Realtime ON');
-        } else {
-            isRunning = false;
-            clearInterval(realtimeTimer);
-            realtimeTimer = null;
-            if (toggleBtn) {
-                toggleBtn.textContent = '▶ Start Realtime';
-                toggleBtn.style.background = '';
-                toggleBtn.style.color = '';
-            }
-            console.log('[EchoLens] Realtime OFF');
-        }
-    };
-
-    window.echoDescribeOnce = function() {
-        captureAndSend();
-    };
-})();
-</script>
-"""
-
-
 with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
 
-    gr.HTML(WEBCAM_JS)
-
-    gr.Markdown("""
-# 👁️ EchoLens — Realtime Vision Assistant
-**For blind and visually impaired users.**
-- Open your camera below
-- Press **Describe Once** for a single description
-- Press **Start Realtime** to auto-describe every 3 seconds
-""")
+    gr.Markdown("# 👁️ EchoLens — Realtime Vision Assistant")
+    gr.Markdown("**For blind and visually impaired users.** Open camera → click **Start Realtime** for auto-description every 3 seconds.")
 
     with gr.Row():
-        # ── LEFT: camera ──────────────────────────────────────
         with gr.Column(scale=1):
             webcam_input = gr.Image(
                 label="Live Camera",
@@ -262,27 +164,9 @@ with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
                 value="Quick (faster)",
                 label="Caption detail",
             )
-            with gr.Row():
-                # These buttons call JS directly via elem_id
-                gr.HTML("""
-                <div style="display:flex; gap:8px; margin-top:4px;">
-                    <button
-                        onclick="window.echoDescribeOnce()"
-                        style="flex:1; padding:10px; background:#6366f1; color:white;
-                               border:none; border-radius:8px; font-size:15px; cursor:pointer;">
-                        📸 Describe Once
-                    </button>
-                    <button
-                        id="rt-btn-inner"
-                        onclick="window.echoToggleRealtime()"
-                        style="flex:1; padding:10px; background:#10b981; color:white;
-                               border:none; border-radius:8px; font-size:15px; cursor:pointer;">
-                        ▶ Start Realtime
-                    </button>
-                </div>
-                """)
+            describe_btn = gr.Button("📸 Describe Once", variant="primary")
+            realtime_btn = gr.Button("▶ Start Realtime", variant="secondary", elem_id="realtime-btn")
 
-        # ── RIGHT: output ──────────────────────────────────────
         with gr.Column(scale=1):
             caption_out = gr.Textbox(
                 label="Caption",
@@ -296,15 +180,27 @@ with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
                 type="filepath",
                 autoplay=True,
             )
-            gr.Markdown("*Realtime mode auto-describes every 3 seconds.*")
+            status_out = gr.Textbox(
+                label="Status",
+                value="Ready.",
+                interactive=False,
+                lines=1,
+            )
 
-    # ── Hidden plumbing: JS → Python ──────────────────────────
+    # Hidden plumbing for JS → Python frame passing
     with gr.Row(visible=False):
-        frame_box = gr.Textbox(elem_id="frame-box", label="frame_box")
-        with gr.Column(elem_id="frame-btn"):
-            frame_btn = gr.Button("send", elem_id="frame-submit")
+        frame_box  = gr.Textbox(elem_id="frame-box",  label="fb")
+        frame_btn  = gr.Button("go", elem_id="frame-btn")
 
-    # Upload describe
+    # ── Gradio events ──────────────────────────────────────────
+
+    describe_btn.click(
+        fn=describe_upload,
+        inputs=[webcam_input, task_choice],
+        outputs=[caption_out, audio_out],
+        show_progress=False,
+    )
+
     upload_input.change(
         fn=describe_upload,
         inputs=[upload_input, task_choice],
@@ -312,7 +208,6 @@ with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
         show_progress=False,
     )
 
-    # Hidden frame button → describe_frame (realtime + describe-once via JS)
     frame_btn.click(
         fn=describe_frame,
         inputs=[frame_box, task_choice],
@@ -320,6 +215,82 @@ with gr.Blocks(title="EchoLens RT", theme=gr.themes.Soft()) as demo:
         show_progress=False,
         queue=True,
     )
+
+    # Realtime toggle — Python just flips label/color,
+    # JS (below) does the actual capture loop
+    realtime_btn.click(
+        fn=None,
+        js="""
+() => {
+    const btn = document.querySelector('#realtime-btn button');
+    if (!btn) return;
+
+    if (btn.dataset.running === 'true') {
+        // --- STOP ---
+        btn.dataset.running = 'false';
+        clearInterval(window._echoTimer);
+        window._echoTimer = null;
+        btn.textContent = '▶ Start Realtime';
+        btn.style.background = '';
+        btn.style.color = '';
+        const s = document.querySelector('#status-box textarea');
+        if (s) { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(s,'Realtime stopped.'); s.dispatchEvent(new Event('input',{bubbles:true})); }
+    } else {
+        // --- START ---
+        btn.dataset.running = 'true';
+        btn.textContent = '⏹ Stop Realtime';
+        btn.style.background = '#ef4444';
+        btn.style.color = 'white';
+        const s = document.querySelector('#status-box textarea');
+        if (s) { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(s,'Realtime running...'); s.dispatchEvent(new Event('input',{bubbles:true})); }
+
+        function capture() {
+            const video = [...document.querySelectorAll('video')].find(v => v.videoWidth > 0 && v.readyState >= 2);
+            if (!video) { console.warn('[EchoLens] no video'); return; }
+            const c = document.createElement('canvas');
+            c.width = video.videoWidth; c.height = video.videoHeight;
+            c.getContext('2d').drawImage(video, 0, 0);
+            const b64 = c.toDataURL('image/jpeg', 0.75);
+
+            const box = document.querySelector('#frame-box textarea');
+            if (!box) { console.warn('[EchoLens] no frame-box'); return; }
+            Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(box, b64);
+            box.dispatchEvent(new Event('input',{bubbles:true}));
+
+            setTimeout(() => {
+                const fb = document.querySelector('#frame-btn button');
+                if (fb) fb.click();
+                else console.warn('[EchoLens] no frame-btn');
+            }, 200);
+        }
+
+        capture(); // immediate
+        window._echoTimer = setInterval(capture, 3500);
+    }
+}
+""",
+    )
+
+    # Status box update from JS
+    status_out.change(fn=None, inputs=[], outputs=[])
+
+    # Inject status box elem_id via HTML trick
+    gr.HTML("""
+    <script>
+    // Patch status textarea elem_id so JS can find it
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(() => {
+            const labels = document.querySelectorAll('.label-wrap span');
+            labels.forEach(l => {
+                if (l.textContent === 'Status') {
+                    const ta = l.closest('.form')?.querySelector('textarea');
+                    if (ta) ta.closest('.block')?.setAttribute('id','status-box');
+                }
+            });
+        }, 2000);
+    });
+    </script>
+    """)
 
 if __name__ == "__main__":
     demo.launch(debug=True)
