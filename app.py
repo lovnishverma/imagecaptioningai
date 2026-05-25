@@ -2,6 +2,8 @@ import torch
 import gradio as gr
 from PIL import Image
 from transformers import AutoProcessor, AutoModelForCausalLM
+from gtts import gTTS
+import tempfile
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -16,7 +18,7 @@ processor = AutoProcessor.from_pretrained('microsoft/Florence-2-base', trust_rem
 
 def generate_caption_stream(image):
     if image is None:
-        yield "Please upload or capture an image.", ""
+        yield "Please upload or capture an image.", None
         return
 
     if not isinstance(image, Image.Image):
@@ -45,34 +47,25 @@ def generate_caption_stream(image):
     )
     caption = result["<MORE_DETAILED_CAPTION>"]
 
-    # Stream word by word, no speech yet
+    # Stream word by word, no audio yet
     words = caption.split()
     partial = ""
     for word in words:
         partial += ("" if partial == "" else " ") + word
-        yield partial, ""  # second output = speech trigger (empty during streaming)
+        yield partial, None
 
-    # Final yield: trigger speech with the complete caption
-    safe = caption.replace("`", "'").replace("\\", "").replace("\n", " ")
-    speech_html = f"""
-        <script>
-            (function() {{
-                if (!window.speechSynthesis) return;
-                window.speechSynthesis.cancel();
-                var utt = new SpeechSynthesisUtterance(`{safe}`);
-                utt.rate = 1.1;
-                utt.pitch = 1.0;
-                window.speechSynthesis.speak(utt);
-            }})();
-        </script>
-    """
-    yield caption, speech_html
+    # Final yield: generate and return audio
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+        gTTS(text=caption, lang="en", slow=False).save(tmp.name)
+        audio_path = tmp.name
+
     print(f"\nFinal caption: {caption}")
+    yield caption, audio_path
 
 
 with gr.Blocks(title="EchoLens RT") as demo:
     gr.Markdown("# 👁️ EchoLens — Realtime Captioning + Speech")
-    gr.Markdown("Upload or capture an image. Caption streams live and is read aloud when complete.")
+    gr.Markdown("Upload or capture an image. Caption streams live then plays aloud.")
 
     with gr.Row():
         with gr.Column(scale=1):
@@ -90,20 +83,23 @@ with gr.Blocks(title="EchoLens RT") as demo:
                 interactive=False,
                 show_copy_button=True,
             )
-            # Hidden HTML component — receives a <script> tag to fire speech
-            speech_trigger = gr.HTML(value="", visible=False)
+            audio_out = gr.Audio(
+                label="Audio",
+                type="filepath",
+                autoplay=True,
+            )
 
     btn.click(
         fn=generate_caption_stream,
         inputs=image_input,
-        outputs=[caption_out, speech_trigger],
+        outputs=[caption_out, audio_out],
         show_progress=False,
     )
 
     image_input.change(
         fn=generate_caption_stream,
         inputs=image_input,
-        outputs=[caption_out, speech_trigger],
+        outputs=[caption_out, audio_out],
         show_progress=False,
     )
 
