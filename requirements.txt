@@ -1,2 +1,7 @@
 transformers==4.48.0
 timm
+torch>=2.1.0
+gradio>=4.0.0
+Pillow>=10.0.0
+einops
+flash-attn
