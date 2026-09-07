@@ -1,4 +1,4 @@
-transformers==4.48.0
+transformers
 timm
 torch>=2.1.0
 torchvision
@@ -8,3 +8,7 @@ edge-tts
 gradio>=5.0.0
 numpy
 accelerate
+paddleocr
+paddlepaddle
+huggingface_hub>=0.25.1
+deep-translator==1.11.4
