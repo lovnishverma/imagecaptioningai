@@ -27,7 +27,7 @@ def wire_events(demo, components, assistant):
 
     def toggle_rt(is_active):
         new_state = not is_active
-        btn_text = "⏹ Stop Realtime (R)" if new_state else "▶ Start Realtime (R)"
+        btn_text = "Stop Realtime (R)" if new_state else "Start Realtime (R)"
         status_msg = "Realtime Started" if new_state else "Realtime Paused"
         return new_state, gr.update(value=btn_text), f'<div id="sightline-status">{status_msg}</div>'
 

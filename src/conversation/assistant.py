@@ -21,11 +21,11 @@ class SightLineAssistant:
     def process_image(self, image, task: str, voice_name: str, force: bool = False, question: str = ""):
         """Process an image and generate a response."""
         if self.vision.model is None:
-            return "Model is initializing, please wait...", None, "⏳ Model Loading..."
+            return "Model is initializing, please wait...", None, "Model Loading..."
             
         import time
         if not force and time.time() < getattr(self, "audio_finish_time", 0.0):
-            return None, None, "🔊 Speaking..."
+            return None, None, "Speaking..."
             
         import numpy as np
         if isinstance(image, np.ndarray):
