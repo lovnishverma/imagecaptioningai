@@ -13,12 +13,12 @@ pinned: false
 SightLine is a voice-first multimodal AI assistant designed primarily for blind and low-vision users. Built for the **UnleashLLM Innovation Challenge** by team members Prateek Dhar Dwivedi (NIELIT Main Campus Ropar) and Lovnish Verma (NIELIT Chandigarh, Ropar Campus).
 
 ## Features
-- **Real-Time Scene Understanding:** Continuously analyze the camera feed to detect people, vehicles, and obstacles using Microsoft's Florence-2 architecture.
-- **Interactive VQA (Visual Question Answering):** Users can actively ask specific questions about their environment (e.g., "Where are my keys?", "Is the traffic light green?").
+- **Real-Time Scene Understanding:** Continuously analyze the camera feed to detect people, vehicles, and obstacles using the upgraded **Microsoft Florence-2-large-ft** architecture (0.7B parameters for improved reasoning).
+- **Interactive VQA (Visual Question Answering):** Users can actively ask specific questions about their environment (e.g., "Where are my keys?", "Is the traffic light green?"). Fixed and mapped to Florence's native `<VQA>` tokens with quick "Enter-to-ask" functionality.
 - **Hyper-Local & Multilingual Support (Hindi):** Automatically translates English scene descriptions into native Hindi and outputs audio using native Indic Text-to-Speech (TTS), making the tool accessible to local demographics.
 - **Smart Scene Change Detection:** Triggers descriptions only when meaningful changes occur in the scene to avoid spamming the user.
 - **Conversational Context:** Remembers recent objects and OCR text to provide natural context-aware responses.
-- **Accessibility First:** High contrast, ARIA labels, screen reader support, large controls, and a fully hands-free experience.
+- **Accessibility First & Optimized UI:** High contrast, ARIA labels, screen reader support, large controls, a fully hands-free experience, and a clean side-by-side layout separating camera and descriptions.
 
 ## Project Structure
 ```text
@@ -29,11 +29,10 @@ sightline/
     vision/          # Florence-2 & PaddleOCR backend
     speech/          # Edge-TTS & audio queuing
     conversation/    # Context tracking & Translation fallback layer
-    camera/
-    accessibility/
-    ui/              # Gradio web interface
+    ui/              # Gradio web interface & Layout styling
  Dockerfile
  requirements.txt
+ app.py              # Application entry point
  README.md
 ```
 
@@ -54,7 +53,7 @@ sightline/
 
 2. Start the application:
    ```bash
-   python -m src.main
+   python app.py
    ```
 3. Open the UI at `http://localhost:7860`.
 

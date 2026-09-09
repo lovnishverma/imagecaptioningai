@@ -39,19 +39,19 @@ class SightLineAssistant:
             "Detailed Scene": "<DETAILED_CAPTION>",
             "Immersive Description": "<MORE_DETAILED_CAPTION>",
             "Read Text": "<OCR>",
-            "Ask Question": "<QA>"
+            "Ask Question": "<VQA>"
         }
         internal_task = task_map.get(task, "<DETAILED_CAPTION>")
         
         # Debounce/Duplicate check if not forced
-        if not force and CONTEXT.is_duplicate(img_hash, internal_task) and internal_task != "<QA>":
+        if not force and CONTEXT.is_duplicate(img_hash, internal_task) and internal_task != "<VQA>":
             text, audio = CONTEXT.get_last()
             return text, audio, "Used cached result"
             
         # Inference based on task
         if internal_task == "<OCR>":
             response = self.vision.read_text(image)
-        elif internal_task == "<QA>":
+        elif internal_task == "<VQA>":
             if not question or not question.strip():
                 response = "Please type a question in the box to use this mode."
             else:

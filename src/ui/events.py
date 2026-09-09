@@ -25,6 +25,12 @@ def wire_events(demo, components, assistant):
         outputs=[c["caption_box"], c["audio_player"], c["status_bar"]]
     )
 
+    c["question_box"].submit(
+        handle_describe,
+        inputs=[c["webcam"], c["upload"], c["task_radio"], c["voice_dropdown"], c["question_box"]],
+        outputs=[c["caption_box"], c["audio_player"], c["status_bar"]]
+    )
+
     def toggle_rt(is_active):
         new_state = not is_active
         btn_text = "Stop Realtime (R)" if new_state else "Start Realtime (R)"

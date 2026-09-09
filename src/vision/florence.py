@@ -143,8 +143,8 @@ class FlorenceVisionEngine(VisionEngine):
 
     def ask_question(self, image: Image.Image, question: str) -> str:
         try:
-            result = self._run_inference(image, "<QA>", text_input=question)
-            answer = result.get("<QA>", "")
+            result = self._run_inference(image, "<VQA>", text_input=question)
+            answer = result.get("<VQA>", "")
             if not answer:
                 return "I couldn't find an answer to that."
             

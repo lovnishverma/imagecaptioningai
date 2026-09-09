@@ -47,8 +47,7 @@ def build_ui(assistant) -> gr.Blocks:
         rt_state = gr.State(True)
 
         with gr.Row():
-            with gr.Column(scale=1):
-                # Controls at the top
+            with gr.Column(scale=2):
                 with gr.Row():
                     describe_btn = gr.Button("Describe (D)", variant="primary", elem_id="btn-describe")
                     realtime_btn = gr.Button("Stop Realtime (R)", variant="secondary", elem_id="btn-realtime")
@@ -59,29 +58,33 @@ def build_ui(assistant) -> gr.Blocks:
                         value="Detailed Scene",
                         label="Mode"
                     )
-                    voice_dropdown = gr.Dropdown(
-                        choices=["English (US) - Aria", "Hindi - Swara"],
-                        value="English (US) - Aria",
-                        label="Voice"
-                    )
+            
+            with gr.Column(scale=1):
+                with gr.Row():
+                    repeat_btn = gr.Button("Repeat (P)", elem_id="btn-repeat")
+                    stop_btn = gr.Button("Stop (Esc)", elem_id="btn-stop")
                 
-                question_box = gr.Textbox(
-                    label="Ask a Question (for 'Ask Question' mode)",
-                    placeholder="e.g. Where are my keys?",
-                    lines=1
+                voice_dropdown = gr.Dropdown(
+                    choices=["English (US) - Aria", "Hindi - Swara"],
+                    value="English (US) - Aria",
+                    label="Voice"
                 )
-                
+        
+        question_box = gr.Textbox(
+            label="Ask a Question (for 'Ask Question' mode)",
+            placeholder="e.g. Where are my keys?",
+            lines=1
+        )
+
+        with gr.Row():
+            with gr.Column(scale=1):
                 webcam = gr.Image(label="Camera", type="numpy", sources=["webcam"], streaming=True)
                 with gr.Accordion("Upload Image", open=False):
                     upload = gr.Image(label="Upload", type="numpy", sources=["upload"])
 
             with gr.Column(scale=1):
-                caption_box = gr.Textbox(label="Description", lines=6, interactive=False)
+                caption_box = gr.Textbox(label="Description", lines=14, interactive=False)
                 audio_player = gr.Audio(label="Audio", type="filepath", autoplay=True)
-                
-                with gr.Row():
-                    repeat_btn = gr.Button("Repeat (P)", elem_id="btn-repeat")
-                    stop_btn = gr.Button("Stop (Esc)", elem_id="btn-stop")
 
         components = {
             "webcam": webcam, "upload": upload, "task_radio": task_radio,

@@ -20,7 +20,7 @@ class Config:
     MAX_QUEUE_SIZE: int = int(os.getenv("SIGHTLINE_MAX_QUEUE_SIZE", "3"))
 
     # Model
-    MODEL_NAME: str = os.getenv("SIGHTLINE_MODEL_NAME", "microsoft/Florence-2-base-ft")
+    MODEL_NAME: str = os.getenv("SIGHTLINE_MODEL_NAME", "microsoft/Florence-2-large-ft")
     
     # Text generation limits for tasks
     MAX_NEW_TOKENS: Dict[str, int] = None
